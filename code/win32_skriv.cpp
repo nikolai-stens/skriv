@@ -1,32 +1,102 @@
 #include <windows.h>
+#include "skriv_platform.h"
+#include "win32_skriv.h"
 
-#define internal static
-#define global static
-
-#define u32 unsigned int
-#define s32 signed int
-#define u64 unsigned long
-#define s64 signed long
-#define r32 float
-#define r64 double
-#define b32 unsigned int
-
-#define Kilobytes(Value) ((Value)*1024LL)
-#define Megabytes(Value) (Kilobytes(Value)*1024LL)
-#define Gigabytes(Value) (Megabytes(Value)*1024LL)
-#define Terabytes(Value) (Gigabytes(Value)*1024LL)
-
-struct screen_buffer
-{
-    BITMAPINFO Info;
-    void *Memory;
-    u32 Width;
-    u32 Height;
-};
+#include <stdio.h>
 
 global b32 GlobalRunning; 
+global win32_screen_buffer Win32ScreenBuffer;
 
-internal LRESULT CALLBACK Win32MainCallback(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam)
+internal FILETIME
+Win32GetLastWriteTime(char *Filename)
+{
+    FILETIME LastWriteTime = {};
+
+    WIN32_FILE_ATTRIBUTE_DATA Data;
+    if(GetFileAttributesEx(Filename, GetFileExInfoStandard, &Data))
+    {
+        LastWriteTime = Data.ftLastWriteTime;
+    }
+
+    return(LastWriteTime);
+}
+
+internal win32_program_code
+Win32LoadProgramCode(char *SourceDLLName, char *TempDLLName, char *LockFileName)
+{
+    win32_program_code Result = {};
+
+    WIN32_FILE_ATTRIBUTE_DATA Ignored;
+    if(!GetFileAttributesEx(LockFileName, GetFileExInfoStandard, &Ignored))
+    {
+        Result.DLLLastWriteTime = Win32GetLastWriteTime(SourceDLLName);
+
+        CopyFile(SourceDLLName, TempDLLName, FALSE);
+
+        Result.DLLHandle = LoadLibraryA(TempDLLName);
+        if(Result.DLLHandle)
+        {
+            Result.UpdateAndRender = (update_and_render *)
+                GetProcAddress(Result.DLLHandle, "UpdateAndRender");
+
+            Result.IsValid = (Result.UpdateAndRender && 1);
+        }
+    }
+    if(!Result.IsValid)
+    {
+        Result.UpdateAndRender = 0;
+    }
+
+    return(Result);
+}
+
+internal void
+Win32UnloadProgramCode(win32_program_code *ProgramCode)
+{
+    if(ProgramCode->DLLHandle)
+    {
+        FreeLibrary(ProgramCode->DLLHandle);
+        ProgramCode->DLLHandle = 0;
+    }
+
+    ProgramCode->IsValid = false;
+    ProgramCode->UpdateAndRender = 0;
+}
+
+internal void
+Win32ResizeClientScreen(HWND Window, win32_screen_buffer *Buffer)
+{
+    RECT ClientRect;
+    GetClientRect(Window, &ClientRect);
+    u32 Width = ClientRect.right - ClientRect.left;
+    u32 Height = ClientRect.bottom - ClientRect.top;
+
+    Buffer->Info.bmiHeader.biSize = sizeof(Win32ScreenBuffer.Info.bmiHeader);
+    Buffer->Info.bmiHeader.biWidth = Width;
+    Buffer->Info.bmiHeader.biHeight = Height;
+    Buffer->Info.bmiHeader.biPlanes = 1;
+    Buffer->Info.bmiHeader.biBitCount = 32;
+    Buffer->Info.bmiHeader.biCompression = BI_RGB;
+
+    Buffer->Width = Width;
+    Buffer->Height = Height;
+    Buffer->Pitch = Width*BITMAP_BYTES_PER_PIXEL;
+
+}
+
+internal void
+Win32DisplayBufferInWindow(HDC DeviceContext, win32_screen_buffer *Buffer)
+{
+    StretchDIBits(DeviceContext, 
+            0, 0, Buffer->Width, Buffer->Height,
+            0, 0, Buffer->Width - 39, Buffer->Height -49,
+            Buffer->Memory,
+            &Buffer->Info,
+            DIB_RGB_COLORS, SRCCOPY);
+}
+
+internal LRESULT CALLBACK 
+Win32MainCallback(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam)
 {
     switch(Message)
     {
@@ -40,6 +110,44 @@ internal LRESULT CALLBACK Win32MainCallback(HWND WindowHandle, UINT Message, WPA
             {
                 GlobalRunning = false;
                 //PostQuitMessage(0);
+            } break;
+
+        case WM_SIZE:
+            {
+                Win32ResizeClientScreen(WindowHandle, &Win32ScreenBuffer);
+            };
+   
+        case WM_ERASEBKGND:
+            {
+#if 0
+                RedrawWindow(WindowHandle, 0, 0, 0); 
+                HDC DeviceContext = GetDC(WindowHandle);
+                Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
+                ReleaseDC(WindowHandle, DeviceContext);
+#else
+                RECT ClientRect;
+                GetClientRect(WindowHandle, &ClientRect);
+                u32 Width = ClientRect.right - ClientRect.left;
+                u32 Height = ClientRect.bottom - ClientRect.top;
+
+                char TextBuffer[256];
+                _snprintf_s(TextBuffer, sizeof(TextBuffer),
+                        "Width: %u, Height: %u, Width2: %u, Height2: %u\n",
+                        Win32ScreenBuffer.Width, 
+                        Win32ScreenBuffer.Height,
+                        Width,
+                        Height);
+                OutputDebugStringA(TextBuffer);
+#endif
+            } break;
+
+
+        case WM_PAINT:
+            {
+                PAINTSTRUCT Paint;
+                HDC DeviceContext = BeginPaint(WindowHandle, &Paint);
+                Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
+                EndPaint(WindowHandle, &Paint);
             } break;
 
         default:
@@ -59,7 +167,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     MSG Message;
 
     WindowClass.cbSize        = sizeof(WNDCLASSEX);
-    WindowClass.style         = 0;
+    WindowClass.style         = CS_HREDRAW|CS_VREDRAW;
     WindowClass.lpfnWndProc   = Win32MainCallback;
     WindowClass.cbClsExtra    = 0;
     WindowClass.cbWndExtra    = 0;
@@ -84,28 +192,25 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         if(Window)
         {
             GlobalRunning = true;
-            //ShowWindow(WindowHandle, nCmdShow);
-            //UpdateWindow(WindowHandle);
 
-            screen_buffer Buffer_;
-            screen_buffer *Buffer = &Buffer_;
-            Buffer->Width = 512;
-            Buffer->Height = 512;
-
-            Buffer->Info.bmiHeader.biSize = sizeof(Buffer->Info.bmiHeader);
-            Buffer->Info.bmiHeader.biWidth = Buffer->Width;
-            Buffer->Info.bmiHeader.biHeight = Buffer->Height;
-            Buffer->Info.bmiHeader.biPlanes = 1;
-            Buffer->Info.bmiHeader.biBitCount = 32;
-            Buffer->Info.bmiHeader.biCompression = BI_RGB;
+            //TODO: hva hvis man kobler til en ny skjerm? eller bytter til en annen skjerm med annen oppløsning?
+            u32 TotalScreenWidth = GetSystemMetrics(SM_CXMAXIMIZED);
+            u32 TotalScreenHeight = GetSystemMetrics(SM_CYMAXIMIZED);
 
             u32 BytesPerPixel = 4;
-            u32 BitmapMemorySize = Buffer->Width*BytesPerPixel*Buffer->Height;
-
-            Buffer->Memory = VirtualAlloc(0, BitmapMemorySize,
+            u32 TotalScreenMemorySize = TotalScreenWidth*BytesPerPixel*TotalScreenHeight;
+            void *TotalScreenMemory = VirtualAlloc(0, TotalScreenMemorySize,
                     MEM_RESERVE|MEM_COMMIT,
                     PAGE_READWRITE);
 
+            Win32ResizeClientScreen(Window, &Win32ScreenBuffer);
+            Win32ScreenBuffer.Memory = TotalScreenMemory;
+
+
+            win32_program_code ProgramCode = Win32LoadProgramCode(
+                    "w:/build/skriv.dll", 
+                    "w:/build/skriv_temp.dll", 
+                    "w:/build/lock.tmp");
             while(GlobalRunning)
             {
                 while(PeekMessage(&Message, NULL, 0, 0, PM_REMOVE))
@@ -114,14 +219,31 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     DispatchMessage(&Message);
                 }
 
-                HDC DeviceContext = GetDC(Window);
-                StretchDIBits(DeviceContext, 
-                        0, 0, Buffer->Width, Buffer->Height,
-                        0, 0, Buffer->Width, Buffer->Height,
-                        Buffer->Memory,
-                        &Buffer->Info,
-                        DIB_RGB_COLORS, SRCCOPY);
+                FILETIME NewDLLWriteTime = Win32GetLastWriteTime("w:/build/skriv.dll");
 
+                if(CompareFileTime(&NewDLLWriteTime, &ProgramCode.DLLLastWriteTime) != 0)
+                {
+                    Win32UnloadProgramCode(&ProgramCode);
+                    ProgramCode = Win32LoadProgramCode(
+                            "w:/build/skriv.dll", 
+                            "w:/build/skriv_temp.dll", 
+                            "w:/build/lock.tmp");
+                }
+
+                offscreen_buffer Buffer = {};
+                Buffer.Memory = Win32ScreenBuffer.Memory;
+                Buffer.Width = Win32ScreenBuffer.Width;
+                Buffer.Height = Win32ScreenBuffer.Height;
+                Buffer.Pitch = Win32ScreenBuffer.Pitch;
+
+
+                if(ProgramCode.UpdateAndRender)
+                {
+                    ProgramCode.UpdateAndRender(&Buffer);
+                }
+
+                HDC DeviceContext = GetDC(Window);
+                Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
                 ReleaseDC(Window, DeviceContext);
 
                 //NOTE: Unused params:
