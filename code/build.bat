@@ -1,6 +1,6 @@
 @echo off
 
-set CompilerFlags= -Od -MTd -nologo -W4 -wd4702 -wd4189 -wd4100 -Z7 
+set CompilerFlags= -O2 -MTd -nologo -W4 -Z7 
 set LinkerFlags= -incremental:no -opt:ref user32.lib gdi32.lib
 
 IF NOT EXIST w:\build mkdir w:\build
