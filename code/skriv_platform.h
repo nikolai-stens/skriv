@@ -27,10 +27,6 @@
 
 #define BYTES_PER_PIXEL 4
 
-struct editor_settings
-{
-    u32 BackgroundColor;
-};
 struct offscreen_buffer
 {
     void *Memory;
@@ -39,7 +35,40 @@ struct offscreen_buffer
     u32 Pitch;
 };
 
-#define UPDATE_AND_RENDER(name) void name(offscreen_buffer *Buffer, editor_settings *Editor)
+inline u32 
+SafeTruncateToU64(u64 Value)
+{
+    Assert(Value <= 0xFFFFFFFF);
+    u32 Result = (u32)Value;
+    return(Result);
+}
+
+struct entire_file
+{
+    u32 ContentsSize;
+    void *Contents;
+};
+
+#define FREE_FILE_MEMORY(name) void name(void *Memory)
+typedef FREE_FILE_MEMORY(free_file_memory);
+
+#define READ_ENTIRE_FILE(name) entire_file name(char *Filename)
+typedef READ_ENTIRE_FILE(read_entire_file);
+
+struct platform_api
+{
+    free_file_memory *FreeFileMemory;
+    read_entire_file *ReadEntireFile;
+};
+
+struct program_memory
+{
+    u32 BackgroundColor;
+    entire_file LoadedFont;
+    platform_api PlatformAPI;
+};
+
+#define UPDATE_AND_RENDER(name) void name(offscreen_buffer *Buffer, program_memory *Memory)
 typedef UPDATE_AND_RENDER(update_and_render);
 
 #define SKRIV_PLATFORM_H

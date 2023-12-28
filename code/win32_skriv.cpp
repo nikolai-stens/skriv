@@ -184,14 +184,70 @@ ProcessMessages(HWND Window)
     }
 }
 
+FREE_FILE_MEMORY(FreeFileMemory)
+{
+    if(Memory)
+    {
+        VirtualFree(Memory, 0, MEM_RELEASE);
+    }
+}
+
+READ_ENTIRE_FILE(ReadEntireFile)
+{
+    entire_file Result = {};
+
+    HANDLE FileHandle = CreateFileA(Filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+    if(FileHandle != INVALID_HANDLE_VALUE)
+    {
+        LARGE_INTEGER FileSize;
+        if(GetFileSizeEx(FileHandle, &FileSize))
+        {
+            u32 FileSize32 = SafeTruncateToU64(FileSize.QuadPart);
+            Result.Contents = VirtualAlloc(0, FileSize32, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+            if(Result.Contents)
+            {
+                DWORD BytesRead;
+                if(ReadFile(FileHandle, Result.Contents, FileSize32, &BytesRead, 0) &&
+                        (FileSize32 == BytesRead))
+                {
+                    Result.ContentsSize = FileSize32;
+                }
+                else
+                {
+                    FreeFileMemory(Result.Contents);
+                    Result.Contents = 0;
+                }
+            }
+            else 
+            {
+                //logging
+            }
+        }
+        else
+        {
+            //logging
+        }
+        CloseHandle(FileHandle);
+    }
+    else
+    {
+        //logging
+    }
+    return(Result);
+}
+
 internal DWORD WINAPI
 EditorThread(LPVOID Param)
 {
-    editor_settings *Editor = (editor_settings *)VirtualAlloc(0, sizeof(editor_settings), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
-    Editor->BackgroundColor = 0xFF323232;
+    program_memory *ProgramMemory = (program_memory *)VirtualAlloc(0, sizeof(program_memory), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+    ProgramMemory->BackgroundColor = 0xFF323232;
+    ProgramMemory->PlatformAPI.FreeFileMemory = FreeFileMemory;
+    ProgramMemory->PlatformAPI.ReadEntireFile = ReadEntireFile;
+
     HWND Window = (HWND)Param;
 
     GlobalRunning = true;
+
 
     //TODO: hva hvis man kobler til en ny skjerm? eller bytter til en annen skjerm med annen oppløsning?
     u32 TotalScreenWidth = GetSystemMetrics(SM_CXMAXIMIZED);
@@ -233,7 +289,7 @@ EditorThread(LPVOID Param)
 
         if(ProgramCode.UpdateAndRender)
         {
-            ProgramCode.UpdateAndRender(&Buffer, Editor);
+            ProgramCode.UpdateAndRender(&Buffer, ProgramMemory);
         }
 
         HDC DeviceContext = GetDC(Window);
@@ -244,6 +300,7 @@ EditorThread(LPVOID Param)
 
     ExitProcess(0);
 }
+
 
 int CALLBACK 
 WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, 
