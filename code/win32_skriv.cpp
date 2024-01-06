@@ -236,6 +236,110 @@ READ_ENTIRE_FILE(ReadEntireFile)
     return(Result);
 }
 
+
+#define MAX_FONT_WIDTH  1024
+#define MAX_FONT_HEIGHT 1024
+internal win32_screen_buffer 
+Win32LoadFont(char *FontName, u32 PointsSize)
+{
+    win32_screen_buffer Result = {};
+    HDC DeviceContext = GetDC(NULL);
+
+    u32 DummySize = MAX_FONT_WIDTH*MAX_FONT_HEIGHT*sizeof(u32);
+    void *DummyDrawing = VirtualAlloc(0, DummySize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+
+    BITMAPINFO Info = {};
+    Info.bmiHeader.biSize = sizeof(Info.bmiHeader);
+    Info.bmiHeader.biWidth = MAX_FONT_WIDTH;
+    Info.bmiHeader.biHeight = MAX_FONT_HEIGHT;
+    Info.bmiHeader.biPlanes = 1;
+    Info.bmiHeader.biBitCount = 32;
+    Info.bmiHeader.biCompression = BI_RGB;
+    Info.bmiHeader.biSizeImage = 0;
+    Info.bmiHeader.biXPelsPerMeter = 0;
+    Info.bmiHeader.biYPelsPerMeter = 0;
+    Info.bmiHeader.biClrUsed = 0;
+    Info.bmiHeader.biClrImportant = 0;
+    HBITMAP Bitmap = CreateDIBSection(DeviceContext, &Info, DIB_RGB_COLORS, &DummyDrawing, 0, 0);
+    SelectObject(DeviceContext, Bitmap);
+    SetBkColor(DeviceContext, RGB(0, 0, 0));
+
+    wchar_t A = 'A';
+    int FontHeight = -MulDiv(PointsSize, GetDeviceCaps(DeviceContext, LOGPIXELSY), 72);
+    HFONT FontHandle;
+
+    FontHandle = CreateFontA(FontHeight, 0, 0, 0,
+                             FW_NORMAL, //Weight
+                             FALSE, // Italic
+                             FALSE, // Underline
+                             FALSE, // Strikeout
+                             DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS,
+                             CLIP_DEFAULT_PRECIS,
+                             ANTIALIASED_QUALITY,
+                             DEFAULT_PITCH|FF_DONTCARE,
+                             FontName);
+
+    SelectObject(DeviceContext, FontHandle);
+    SetTextColor(DeviceContext, RGB(255, 255, 255));
+    SIZE Size;
+    GetTextExtentPoint32W(DeviceContext, &A, 1, &Size);
+    TextOutW(DeviceContext, 0, 0, &A, 1);
+
+#if 0
+    ZeroMemory(DummyDrawing, DummySize);
+
+    int PreStepX = 128;
+
+    int BoundWidth = Size.cx + 2*PreStepX;
+    if(BoundWidth > MAX_FONT_WIDTH) 
+    {
+        BoundWidth = MAX_FONT_WIDTH;
+    }
+    int BoundHeight = Size.cy;
+    if(BoundHeight > MAX_FONT_HEIGHT)
+    {
+        BoundHeight = MAX_FONT_HEIGHT;
+    }
+
+    s32 MinX = 10000;
+    s32 MinY = 10000;
+    s32 MaxX = -10000;
+    s32 MaxY = -10000;
+
+    u32 *Row = (u32 *)DummyDrawing;
+
+    for(s32 Y = 0;
+            Y < BoundHeight;
+            ++Y)
+    {
+        u32 *Pixel = Row;
+        for(s32 X = 0;
+                X < BoundHeight;
+                ++X)
+        {
+            if(*Pixel != 0)
+            {
+                if(MinX > X)
+                {
+                    MinX = X;
+                }
+            }
+        }
+    }
+
+#endif
+
+    Result.Info = Info;
+    Result.Memory = DummyDrawing;
+    Result.Width = MAX_FONT_WIDTH;
+    Result.Height = MAX_FONT_HEIGHT;
+    Result.Pitch = MAX_FONT_WIDTH;
+
+    ReleaseDC(NULL, DeviceContext);
+    return(Result);
+}
+
 internal DWORD WINAPI
 EditorThread(LPVOID Param)
 {
@@ -267,6 +371,9 @@ EditorThread(LPVOID Param)
             "w:/build/lock.tmp");
 
     offscreen_buffer Buffer = {};
+
+    win32_screen_buffer FontBuffer = {};
+    b32 FontLoaded = false;
     while(GlobalRunning)
     {
         FILETIME NewDLLWriteTime = Win32GetLastWriteTime("w:/build/skriv.dll");
@@ -293,8 +400,20 @@ EditorThread(LPVOID Param)
         }
 
         HDC DeviceContext = GetDC(Window);
-        Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
+        //Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
+
+        if(!FontLoaded)
+        {
+             FontBuffer = Win32LoadFont("Times New Roman", 12);
+             FontLoaded = true;
+        }
+        else
+        {
+            Win32DisplayBufferInWindow(DeviceContext, &FontBuffer);
+        }
+
         ReleaseDC(Window, DeviceContext);
+
 
     }
 

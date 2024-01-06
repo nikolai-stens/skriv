@@ -27,6 +27,14 @@
 
 #define BYTES_PER_PIXEL 4
 
+struct font
+{
+    b32 IsLoaded;
+
+    u32 Width;
+    u32 Height;
+};
+
 struct offscreen_buffer
 {
     void *Memory;

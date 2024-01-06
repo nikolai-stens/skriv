@@ -4,9 +4,6 @@
 
 #include "skriv_intrinsics.h"
 
-#define STB_TRUETYPE_IMPLEMENTATION
-#include "stb_truetype.h"
-
 #pragma comment(linker, "-EXPORT:UpdateAndRender")
 
 #include "skriv_render.cpp"
@@ -22,6 +19,7 @@ extern "C" UPDATE_AND_RENDER(UpdateAndRender)
     };
     
     
+#if 0
     stbtt_fontinfo Font;
     stbtt_InitFont(&Font, (u8 *)Memory->LoadedFont.Contents, 
             stbtt_GetFontOffsetForIndex((u8 *)Memory->LoadedFont.Contents, 0));
@@ -38,6 +36,7 @@ extern "C" UPDATE_AND_RENDER(UpdateAndRender)
 
     stbtt_MakeCodepointBitmap(&Font, (unsigned char *)Buffer->Memory, Width, Height, Buffer->Pitch,
             ScaleX, ScaleY, Codepoint);
+#endif
 
     //int Width, Height, XOffset, YOffset;
     //u8 *MonoBitmap = stbtt_GetCodepointBitmap(&Font, 0, stbtt_ScaleForPixelHeight(&Font, 128.0f),
