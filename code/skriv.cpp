@@ -1,75 +1,97 @@
 #include "skriv.h"
 #include "skriv_platform.h"
+#include "skriv_intrinsics.h"
 #include "skriv_math.h"
 
-#include "skriv_intrinsics.h"
 
 #pragma comment(linker, "-EXPORT:UpdateAndRender")
 
 #include "skriv_render.cpp"
 
 
+internal void
+DrawCharacter(offscreen_buffer *Buffer, glyph *Glyph)
+{
+    u8 *SourceRow = (u8 *)Glyph->Memory;
+    u8 *DestRow = (u8 *)Buffer->Memory;
+
+    for(u32 Y = 0;
+           Y < Glyph->Height;
+           ++Y)
+    {
+        u32 *SourcePixel = (u32 *)SourceRow;
+        u32 *DestPixel   = (u32 *)DestRow;
+        for(u32 X = 0;
+                X < Glyph->Width;
+                ++X)
+        {
+            v4 SourceColor =
+            {
+                (r32)((*SourcePixel >> 16) & 0xFF),
+                (r32)((*SourcePixel >> 8) & 0xFF),
+                (r32)((*SourcePixel >> 0) & 0xFF),
+                (r32)((*SourcePixel >> 24) & 0xFF)
+            };
+
+            SourceColor = SRGB255ToLinear1(SourceColor);
+
+            v4 DestColor =
+            {
+                (r32)((*DestPixel >> 16) & 0xFF),
+                (r32)((*DestPixel >> 8) & 0xFF),
+                (r32)((*DestPixel >> 0) & 0xFF),
+                (r32)((*DestPixel >> 24) & 0xFF)
+            };
+
+            DestColor = SRGB255ToLinear1(DestColor);
+
+            v4 Result = (1.0f - SourceColor.a)*DestColor + SourceColor;
+
+            Result = Linear1ToSRGB255(Result);
+
+            *DestPixel = (((u32)(Result.a + 0.5f) << 24) |
+                          ((u32)(Result.r + 0.5f) << 16) | 
+                          ((u32)(Result.g + 0.5f) << 8) | 
+                          ((u32)(Result.b + 0.5f) << 0));
+
+            ++SourcePixel;
+            ++DestPixel;
+        }
+
+        SourceRow += BYTES_PER_PIXEL*Glyph->Width;
+        DestRow += Buffer->Pitch;
+    }
+}
+
+
+#define MAX_FONT_WIDTH 1024
+#define MAX_FONT_HEIGHT 1024
 extern "C" UPDATE_AND_RENDER(UpdateAndRender)
 {
     ClearBackground(Buffer, Memory->BackgroundColor);
     
-    if(Memory->LoadedFont.ContentsSize == 0)
-    {
-        Memory->LoadedFont = Memory->PlatformAPI.ReadEntireFile("C:/windows/fonts/arial.ttf");
-    };
-    
-    
-#if 0
-    stbtt_fontinfo Font;
-    stbtt_InitFont(&Font, (u8 *)Memory->LoadedFont.Contents, 
-            stbtt_GetFontOffsetForIndex((u8 *)Memory->LoadedFont.Contents, 0));
-
-    int Codepoint = 'A';
-    r32 ScaleX = 0.1f;
-    r32 ScaleY = 0.1f;
-    int ix0, ix1, iy0, iy1;
-
-    stbtt_GetCodepointBitmapBox(&Font, Codepoint, ScaleX, ScaleY,
-            &ix0, &iy0, &ix1, &iy1);
-    int Width = ix1 - ix0;
-    int Height = iy1 - iy0;
-
-    stbtt_MakeCodepointBitmap(&Font, (unsigned char *)Buffer->Memory, Width, Height, Buffer->Pitch,
-            ScaleX, ScaleY, Codepoint);
-#endif
-
-    //int Width, Height, XOffset, YOffset;
-    //u8 *MonoBitmap = stbtt_GetCodepointBitmap(&Font, 0, stbtt_ScaleForPixelHeight(&Font, 128.0f),
-    //        CodePoint, &Width, &Height, &XOffset, &YOffset);
-
-
-    //DrawRectangle(Buffer, , , );
-    //DrawHorizontalLine(Buffer, 0.5f*Buffer->Height, V4(0, 0, 1, 1), 2.0f); 
-
-    //v4 Color = V4(1, 1, 0, 1);
-    //v2 Min = V2(0.25f*Buffer->Width, 0.25f*Buffer->Height);
-    //v2 Max = V2(0.25f*Buffer->Width, 0.75f*Buffer->Height);
-    //r32 LineWidth = 1.0f;
-
-    //v2 HalfLineWidth = V2(0.5f*LineWidth, 0);
-    //DrawRectangle(Buffer, Min - HalfLineWidth, Max + HalfLineWidth, Color);
-
-    //DrawHorizontalLine(Buffer, 0.5f*Buffer->Height, V4(1, 1, 1, 1));
     DrawGrid(Buffer, 100.0f, V4(0, 1, 0, 1));
+
+    glyph *GlyphA = Memory->Glyph;
+
 #if 0
-    v2 Min = {0, 0};
-
-    v4 Color = V4(1, 0, 0, 1);
-
-    v2 Center = 0.5f*V2i(Buffer->Width, Buffer->Height);
-    v2 Max = 2*Center;
-
-    v2 Offset = V2i(100, 100);
-
-    DrawRectangle(Buffer, Center - Offset, Center + Offset, HexToV4(0xFF0000FF));
-
-    r32 GridSize = 10000.0f/Buffer->Height;
-    DrawGrid(Buffer, GridSize, V4(0, 1, 0, 1));
+    for(u32 Y = 0;
+            Y < Buffer->Height;
+            ++Y)
+    {
+        u8 *SourceRow = (u8 *)GlyphA->Memory + Y*BYTES_PER_PIXEL*GlyphA->Width;
+        u8 *DestRow = (u8 *)Buffer->Memory + Y*Buffer->Pitch;
+        for(u32 X = 0;
+                X < Buffer->Width;
+                ++X)
+        {
+            u32 *SourcePixel = (u32 *)SourceRow + X;
+            u32 *DestPixel = (u32 *)DestRow + X;
+            *DestPixel = *SourcePixel;
+        }
+    }
 #endif
+
+    DrawCharacter(Buffer, GlyphA);
 }
 

@@ -27,12 +27,12 @@
 
 #define BYTES_PER_PIXEL 4
 
-struct font
+struct glyph
 {
-    b32 IsLoaded;
-
     u32 Width;
     u32 Height;
+
+    void *Memory;
 };
 
 struct offscreen_buffer
@@ -72,7 +72,7 @@ struct platform_api
 struct program_memory
 {
     u32 BackgroundColor;
-    entire_file LoadedFont;
+    glyph *Glyph;
     platform_api PlatformAPI;
 };
 

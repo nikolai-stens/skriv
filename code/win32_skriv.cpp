@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include "skriv_platform.h"
+#include "skriv_intrinsics.h"
 #include "skriv_math.h"
 #include "win32_skriv.h"
 
@@ -239,14 +240,15 @@ READ_ENTIRE_FILE(ReadEntireFile)
 
 #define MAX_FONT_WIDTH  1024
 #define MAX_FONT_HEIGHT 1024
-internal win32_screen_buffer 
+internal glyph
 Win32LoadFont(char *FontName, u32 PointsSize)
 {
     win32_screen_buffer Result = {};
-    HDC DeviceContext = GetDC(NULL);
+    HDC DeviceContext = CreateCompatibleDC(GetDC(NULL));
 
     u32 DummySize = MAX_FONT_WIDTH*MAX_FONT_HEIGHT*sizeof(u32);
     void *DummyDrawing = VirtualAlloc(0, DummySize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+    ZeroMemory(DummyDrawing, DummySize);
 
     BITMAPINFO Info = {};
     Info.bmiHeader.biSize = sizeof(Info.bmiHeader);
@@ -260,6 +262,7 @@ Win32LoadFont(char *FontName, u32 PointsSize)
     Info.bmiHeader.biYPelsPerMeter = 0;
     Info.bmiHeader.biClrUsed = 0;
     Info.bmiHeader.biClrImportant = 0;
+
     HBITMAP Bitmap = CreateDIBSection(DeviceContext, &Info, DIB_RGB_COLORS, &DummyDrawing, 0, 0);
     SelectObject(DeviceContext, Bitmap);
     SetBkColor(DeviceContext, RGB(0, 0, 0));
@@ -286,8 +289,82 @@ Win32LoadFont(char *FontName, u32 PointsSize)
     GetTextExtentPoint32W(DeviceContext, &A, 1, &Size);
     TextOutW(DeviceContext, 0, 0, &A, 1);
 
+    s32 MinX = 10000;
+    s32 MinY = 10000;
+    s32 MaxX = -10000;
+    s32 MaxY = -10000;
+
+    for(s32 Y = 0;
+            Y < MAX_FONT_HEIGHT;
+            ++Y)
+    {
+        u32 *Row = (u32 *)DummyDrawing + Y*MAX_FONT_WIDTH;
+        for(s32 X = 0;
+                X < MAX_FONT_WIDTH;
+                ++X)
+        {
+            u32 *Pixel = Row + X;
+            if(*Pixel != 0)
+            {
+                if(MinX > X)
+                {
+                    MinX = X;
+                }
+
+                if(MinY > Y)
+                {
+                    MinY = Y;
+                }
+
+                if(MaxX < X)
+                {
+                    MaxX = X;
+                }
+
+                if(MaxY < Y)
+                {
+                    MaxY = Y;
+                }
+            }
+        }
+    }
+
+    glyph Glyph;
+    Glyph.Width = (u32)(MaxX - MinX);
+    Glyph.Height = (u32)(MaxY - MinY);
+
+    Glyph.Memory = VirtualAlloc(0, Glyph.Width*Glyph.Height*sizeof(u32), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+
+    u32 *SourceRow = (u32 *)DummyDrawing + MinY*MAX_FONT_WIDTH;
+    u32 *DestRow = (u32 *)Glyph.Memory;
+    for(s32 Y = MinY;
+            Y <= MaxY;
+            ++Y)
+    {
+        u32 *SourcePixel = SourceRow + MinX;
+        u32 *DestPixel = DestRow;
+        for(s32 X = MinX;
+                X <= MaxX;
+                ++X)
+        {
+            r32 Gray = (r32)(*SourcePixel & 0xFF);
+            v4 PixelColor = {255.0f, 255.0f, 255.0f, Gray};
+
+            PixelColor = SRGB255ToLinear1(PixelColor);
+            PixelColor.rgb *= PixelColor.a;
+            PixelColor = Linear1ToSRGB255(PixelColor);
+
+            *DestPixel++ = (((u32)(PixelColor.a + 0.5f) << 24) |
+                            ((u32)(PixelColor.r + 0.5f) << 16) | 
+                            ((u32)(PixelColor.g + 0.5f) << 8) | 
+                            ((u32)(PixelColor.b + 0.5f) << 0));
+            ++SourcePixel;
+        }
+        ++SourceRow;
+        ++DestRow;
+    }
+
 #if 0
-    ZeroMemory(DummyDrawing, DummySize);
 
     int PreStepX = 128;
 
@@ -330,14 +407,9 @@ Win32LoadFont(char *FontName, u32 PointsSize)
 
 #endif
 
-    Result.Info = Info;
-    Result.Memory = DummyDrawing;
-    Result.Width = MAX_FONT_WIDTH;
-    Result.Height = MAX_FONT_HEIGHT;
-    Result.Pitch = MAX_FONT_WIDTH;
-
-    ReleaseDC(NULL, DeviceContext);
-    return(Result);
+    //ReleaseDC(NULL, DeviceContext);
+    DeleteDC(DeviceContext);
+    return(Glyph);
 }
 
 internal DWORD WINAPI
@@ -372,8 +444,10 @@ EditorThread(LPVOID Param)
 
     offscreen_buffer Buffer = {};
 
-    win32_screen_buffer FontBuffer = {};
+    glyph Glyph = {};
+
     b32 FontLoaded = false;
+
     while(GlobalRunning)
     {
         FILETIME NewDLLWriteTime = Win32GetLastWriteTime("w:/build/skriv.dll");
@@ -394,23 +468,20 @@ EditorThread(LPVOID Param)
         Buffer.Height = Win32ScreenBuffer.Height;
         Buffer.Pitch = Win32ScreenBuffer.Pitch;
 
+        if(!FontLoaded)
+        {
+             Glyph = Win32LoadFont("Verdana", 209);
+             FontLoaded = true;
+             ProgramMemory->Glyph = &Glyph;
+        }
+
         if(ProgramCode.UpdateAndRender)
         {
             ProgramCode.UpdateAndRender(&Buffer, ProgramMemory);
         }
 
         HDC DeviceContext = GetDC(Window);
-        //Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
-
-        if(!FontLoaded)
-        {
-             FontBuffer = Win32LoadFont("Times New Roman", 12);
-             FontLoaded = true;
-        }
-        else
-        {
-            Win32DisplayBufferInWindow(DeviceContext, &FontBuffer);
-        }
+        Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
 
         ReleaseDC(Window, DeviceContext);
 

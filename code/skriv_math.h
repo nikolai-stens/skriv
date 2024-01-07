@@ -4,6 +4,8 @@ inline r32
 Square(r32 A)
 {
     r32 Result = A*A;
+
+    return(Result);
 }
 
 inline r32
@@ -515,6 +517,36 @@ HexToV4(u32 Hex)
     Result.g = (1/255.0f)*(r32)(*(&(u8)Hex + 1));
     Result.b = (1/255.0f)*(r32)(*(&(u8)Hex + 0));
     Result.a = (1/255.0f)*(r32)(*(&(u8)Hex + 3));
+
+    return(Result);
+}
+
+inline v4
+SRGB255ToLinear1(v4 Color)
+{
+    //TODO: Må lese meg litt mer opp på hvordan dette funker
+    v4 Result;
+
+    r32 Inv255 = 1.0f / 255.0f;
+
+    Result.r = Square(Inv255*Color.r);
+    Result.g = Square(Inv255*Color.g);
+    Result.b = Square(Inv255*Color.b);
+    Result.a = Inv255*Color.a;
+
+    return(Result);
+}
+
+
+inline v4
+Linear1ToSRGB255(v4 Color)
+{
+    v4 Result;
+
+    Result.r = 255.0f*SquareRoot(Color.r);
+    Result.g = 255.0f*SquareRoot(Color.g);
+    Result.b = 255.0f*SquareRoot(Color.b);
+    Result.a = 255.0f*Color.a;
 
     return(Result);
 }

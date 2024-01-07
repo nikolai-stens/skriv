@@ -16,6 +16,14 @@ inline u32 RoundReal32ToUInt32(r32 Value)
     return(Result);
 }
 
+inline r32
+SquareRoot(r32 Value)
+{
+    r32 Result = sqrtf(Value);
+
+    return(Result);
+}
+
 
 #define SKRIV_INTRINSICS_H
 #endif
