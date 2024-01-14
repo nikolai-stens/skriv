@@ -240,9 +240,11 @@ READ_ENTIRE_FILE(ReadEntireFile)
 
 #define MAX_FONT_WIDTH  1024
 #define MAX_FONT_HEIGHT 1024
-internal glyph
+internal loaded_font *
 Win32LoadFont(char *FontName, u32 PointsSize)
 {
+    loaded_font *Font = (loaded_font *)VirtualAlloc(0, sizeof(loaded_font), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE); 
+
     win32_screen_buffer Result = {};
     HDC DeviceContext = CreateCompatibleDC(GetDC(NULL));
 
@@ -284,6 +286,7 @@ Win32LoadFont(char *FontName, u32 PointsSize)
                              FontName);
 
     SelectObject(DeviceContext, FontHandle);
+    GetTextMetrics(DeviceContext, &Font->TextMetric);
     SetTextColor(DeviceContext, RGB(255, 255, 255));
     SIZE Size;
     GetTextExtentPoint32W(DeviceContext, &A, 1, &Size);
@@ -332,19 +335,20 @@ Win32LoadFont(char *FontName, u32 PointsSize)
     glyph Glyph;
     Glyph.Width = (u32)(MaxX - MinX);
     Glyph.Height = (u32)(MaxY - MinY);
+    Glyph.Pitch = BYTES_PER_PIXEL*Glyph.Width;
 
     Glyph.Memory = VirtualAlloc(0, Glyph.Width*Glyph.Height*sizeof(u32), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
 
-    u32 *SourceRow = (u32 *)DummyDrawing + MinY*MAX_FONT_WIDTH;
-    u32 *DestRow = (u32 *)Glyph.Memory;
+    u8 *SourceRow = (u8 *)DummyDrawing + BYTES_PER_PIXEL*MinY*MAX_FONT_WIDTH;
+    u8 *DestRow = (u8 *)Glyph.Memory;
     for(s32 Y = MinY;
-            Y <= MaxY;
+            Y < MaxY;
             ++Y)
     {
-        u32 *SourcePixel = SourceRow + MinX;
-        u32 *DestPixel = DestRow;
+        u32 *SourcePixel = (u32 *)SourceRow + MinX;
+        u32 *DestPixel = (u32 *)DestRow;
         for(s32 X = MinX;
-                X <= MaxX;
+                X < MaxX;
                 ++X)
         {
             r32 Gray = (r32)(*SourcePixel & 0xFF);
@@ -360,8 +364,9 @@ Win32LoadFont(char *FontName, u32 PointsSize)
                             ((u32)(PixelColor.b + 0.5f) << 0));
             ++SourcePixel;
         }
-        ++SourceRow;
-        ++DestRow;
+
+        SourceRow += BYTES_PER_PIXEL*MAX_FONT_WIDTH;
+        DestRow += Glyph.Pitch;
     }
 
 #if 0
@@ -408,6 +413,7 @@ Win32LoadFont(char *FontName, u32 PointsSize)
 #endif
 
     //ReleaseDC(NULL, DeviceContext);
+    VirtualFree(DummyDrawing, 0, MEM_RELEASE);
     DeleteDC(DeviceContext);
     return(Glyph);
 }
@@ -470,7 +476,7 @@ EditorThread(LPVOID Param)
 
         if(!FontLoaded)
         {
-             Glyph = Win32LoadFont("Verdana", 209);
+             Glyph = Win32LoadFont("Verdana", 50);
              FontLoaded = true;
              ProgramMemory->Glyph = &Glyph;
         }
@@ -480,11 +486,12 @@ EditorThread(LPVOID Param)
             ProgramCode.UpdateAndRender(&Buffer, ProgramMemory);
         }
 
+
         HDC DeviceContext = GetDC(Window);
+
         Win32DisplayBufferInWindow(DeviceContext, &Win32ScreenBuffer);
 
         ReleaseDC(Window, DeviceContext);
-
 
     }
 

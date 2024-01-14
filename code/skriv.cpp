@@ -35,6 +35,11 @@ DrawCharacter(offscreen_buffer *Buffer, glyph *Glyph)
 
             SourceColor = SRGB255ToLinear1(SourceColor);
 
+            if(SourceColor.a != 1.0f && SourceColor.a != 0.0f)
+            {
+                int x = 5;
+            }
+
             v4 DestColor =
             {
                 (r32)((*DestPixel >> 16) & 0xFF),
@@ -58,7 +63,7 @@ DrawCharacter(offscreen_buffer *Buffer, glyph *Glyph)
             ++DestPixel;
         }
 
-        SourceRow += BYTES_PER_PIXEL*Glyph->Width;
+        SourceRow += Glyph->Pitch;
         DestRow += Buffer->Pitch;
     }
 }

@@ -29,10 +29,16 @@
 
 struct glyph
 {
+    void *Memory;
     u32 Width;
     u32 Height;
+    u32 Pitch;
+};
 
-    void *Memory;
+struct loaded_font
+{
+    TEXTMETRIC TextMetric;
+    glyph GlyphTable[];
 };
 
 struct offscreen_buffer
