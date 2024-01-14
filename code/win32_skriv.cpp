@@ -83,20 +83,21 @@ Win32ResizeClientScreen(HWND Window, win32_screen_buffer *Buffer)
     Buffer->Info.bmiHeader.biBitCount = 32;
     Buffer->Info.bmiHeader.biCompression = BI_RGB;
 
-    Buffer->Width = Width;
-    Buffer->Height = Height;
-    Buffer->Pitch = Width*BYTES_PER_PIXEL;
+    Buffer->Bitmap.Width = Width;
+    Buffer->Bitmap.Height = Height;
+    Buffer->Bitmap.Pitch = Width*BYTES_PER_PIXEL;
 
 }
 
 internal void
-Win32DisplayBufferInWindow(HDC DeviceContext, win32_screen_buffer *Buffer)
+Win32DisplayBufferInWindow(HDC DeviceContext, win32_screen_buffer *ScreenBuffer)
 {
+    bitmap *Buffer = &ScreenBuffer->Bitmap;
     StretchDIBits(DeviceContext, 
             0, 0, Buffer->Width, Buffer->Height,
             0, 0, Buffer->Width, Buffer->Height,
             Buffer->Memory,
-            &Buffer->Info,
+            &ScreenBuffer->Info,
             DIB_RGB_COLORS, SRCCOPY);
 }
 
@@ -240,17 +241,23 @@ READ_ENTIRE_FILE(ReadEntireFile)
 
 #define MAX_FONT_WIDTH  1024
 #define MAX_FONT_HEIGHT 1024
-internal loaded_font *
-Win32LoadFont(char *FontName, u32 PointsSize)
+
+struct temp_font
 {
-    loaded_font *Font = (loaded_font *)VirtualAlloc(0, sizeof(loaded_font), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE); 
+    void *DummyDrawing;
+    u32 DummyDrawingSize;
+    HFONT FontHandle;
+    s32 FontHeight;
+    TEXTMETRIC TextMetric;
+    HDC DeviceContext;
+};
 
-    win32_screen_buffer Result = {};
-    HDC DeviceContext = CreateCompatibleDC(GetDC(NULL));
+internal temp_font
+Win32InitializeFont(char *FontName, u32 PointsSize)
+{
+    temp_font Result = {};
 
-    u32 DummySize = MAX_FONT_WIDTH*MAX_FONT_HEIGHT*sizeof(u32);
-    void *DummyDrawing = VirtualAlloc(0, DummySize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
-    ZeroMemory(DummyDrawing, DummySize);
+    Result.DeviceContext = CreateCompatibleDC(GetDC(NULL));
 
     BITMAPINFO Info = {};
     Info.bmiHeader.biSize = sizeof(Info.bmiHeader);
@@ -265,48 +272,73 @@ Win32LoadFont(char *FontName, u32 PointsSize)
     Info.bmiHeader.biClrUsed = 0;
     Info.bmiHeader.biClrImportant = 0;
 
-    HBITMAP Bitmap = CreateDIBSection(DeviceContext, &Info, DIB_RGB_COLORS, &DummyDrawing, 0, 0);
-    SelectObject(DeviceContext, Bitmap);
-    SetBkColor(DeviceContext, RGB(0, 0, 0));
+    Result.DummyDrawingSize = MAX_FONT_WIDTH*MAX_FONT_HEIGHT*sizeof(u32);
+    Result.DummyDrawing = VirtualAlloc(0, Result.DummyDrawingSize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
 
-    wchar_t A = 'A';
-    int FontHeight = -MulDiv(PointsSize, GetDeviceCaps(DeviceContext, LOGPIXELSY), 72);
-    HFONT FontHandle;
+    HBITMAP Bitmap = CreateDIBSection(Result.DeviceContext, &Info, DIB_RGB_COLORS, &Result.DummyDrawing, 0, 0);
+    SelectObject(Result.DeviceContext, Bitmap);
+    SetBkColor(Result.DeviceContext, RGB(0, 0, 0));
 
-    FontHandle = CreateFontA(FontHeight, 0, 0, 0,
-                             FW_NORMAL, //Weight
-                             FALSE, // Italic
-                             FALSE, // Underline
-                             FALSE, // Strikeout
-                             DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS,
-                             CLIP_DEFAULT_PRECIS,
-                             ANTIALIASED_QUALITY,
-                             DEFAULT_PITCH|FF_DONTCARE,
-                             FontName);
+    Result.FontHeight = -MulDiv(PointsSize, GetDeviceCaps(Result.DeviceContext, LOGPIXELSY), 72);
 
-    SelectObject(DeviceContext, FontHandle);
-    GetTextMetrics(DeviceContext, &Font->TextMetric);
-    SetTextColor(DeviceContext, RGB(255, 255, 255));
+    Result.FontHandle = CreateFontA(Result.FontHeight, 0, 0, 0,
+                                    FW_NORMAL, //Weight
+                                    FALSE, // Italic
+                                    FALSE, // Underline
+                                    FALSE, // Strikeout
+                                    DEFAULT_CHARSET,
+                                    OUT_DEFAULT_PRECIS,
+                                    CLIP_DEFAULT_PRECIS,
+                                    CLEARTYPE_QUALITY,
+                                    //ANTIALIASED_QUALITY,
+                                    DEFAULT_PITCH|FF_DONTCARE,
+                                    FontName);
+
+    SelectObject(Result.DeviceContext, Result.FontHandle);
+    GetTextMetrics(Result.DeviceContext, &Result.TextMetric);
+    SetTextColor(Result.DeviceContext, RGB(255, 255, 255));
+
+    return(Result);
+}
+internal void
+Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, char Codepoint)
+{
+    ZeroMemory(TempFont->DummyDrawing, TempFont->DummyDrawingSize);
+
     SIZE Size;
-    GetTextExtentPoint32W(DeviceContext, &A, 1, &Size);
-    TextOutW(DeviceContext, 0, 0, &A, 1);
+    GetTextExtentPoint32W(TempFont->DeviceContext, &(wchar_t)Codepoint, 1, &Size);
+
+    s32 PreStepX = 128;
+
+    s32 BoundWidth = (s32)(Size.cx + 2*PreStepX);
+    s32 BoundHeight = (s32)(Size.cy);
+
+    if(BoundWidth > MAX_FONT_WIDTH)
+    {
+        BoundWidth = MAX_FONT_WIDTH;
+    }
+    if(BoundHeight > MAX_FONT_HEIGHT)
+    {
+        BoundHeight = MAX_FONT_HEIGHT;
+    }
+
+    TextOutW(TempFont->DeviceContext, PreStepX, 0, &(wchar_t)Codepoint, 1);
 
     s32 MinX = 10000;
     s32 MinY = 10000;
     s32 MaxX = -10000;
     s32 MaxY = -10000;
 
+    u32 *Row = (u32 *)TempFont->DummyDrawing + (MAX_FONT_HEIGHT - BoundHeight)*MAX_FONT_WIDTH;
     for(s32 Y = 0;
-            Y < MAX_FONT_HEIGHT;
+            Y < BoundHeight;
             ++Y)
     {
-        u32 *Row = (u32 *)DummyDrawing + Y*MAX_FONT_WIDTH;
+        u32 *Pixel = Row;
         for(s32 X = 0;
-                X < MAX_FONT_WIDTH;
+                X < BoundWidth;
                 ++X)
         {
-            u32 *Pixel = Row + X;
             if(*Pixel != 0)
             {
                 if(MinX > X)
@@ -329,26 +361,34 @@ Win32LoadFont(char *FontName, u32 PointsSize)
                     MaxY = Y;
                 }
             }
+            ++Pixel;
         }
+        Row += MAX_FONT_WIDTH;
     }
 
-    glyph Glyph;
-    Glyph.Width = (u32)(MaxX - MinX);
-    Glyph.Height = (u32)(MaxY - MinY);
+    //r32 KerningChange = 0;
+    //if(MinX <= MaxX)
+    //{
+    //    s32 
+    //}
+
+    bitmap Glyph;
+    Glyph.Width = (u32)(MaxX - MinX + 1);
+    Glyph.Height = (u32)(MaxY - MinY + 1);
     Glyph.Pitch = BYTES_PER_PIXEL*Glyph.Width;
 
-    Glyph.Memory = VirtualAlloc(0, Glyph.Width*Glyph.Height*sizeof(u32), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+    Glyph.Memory = GlyphLocation;
 
-    u8 *SourceRow = (u8 *)DummyDrawing + BYTES_PER_PIXEL*MinY*MAX_FONT_WIDTH;
+    u8 *SourceRow = (u8 *)TempFont->DummyDrawing + BYTES_PER_PIXEL*MAX_FONT_WIDTH*(MAX_FONT_HEIGHT - BoundHeight + MinY);
     u8 *DestRow = (u8 *)Glyph.Memory;
     for(s32 Y = MinY;
-            Y < MaxY;
+            Y <= MaxY;
             ++Y)
     {
         u32 *SourcePixel = (u32 *)SourceRow + MinX;
         u32 *DestPixel = (u32 *)DestRow;
         for(s32 X = MinX;
-                X < MaxX;
+                X <= MaxX;
                 ++X)
         {
             r32 Gray = (r32)(*SourcePixel & 0xFF);
@@ -369,53 +409,22 @@ Win32LoadFont(char *FontName, u32 PointsSize)
         DestRow += Glyph.Pitch;
     }
 
-#if 0
-
-    int PreStepX = 128;
-
-    int BoundWidth = Size.cx + 2*PreStepX;
-    if(BoundWidth > MAX_FONT_WIDTH) 
-    {
-        BoundWidth = MAX_FONT_WIDTH;
-    }
-    int BoundHeight = Size.cy;
-    if(BoundHeight > MAX_FONT_HEIGHT)
-    {
-        BoundHeight = MAX_FONT_HEIGHT;
-    }
-
-    s32 MinX = 10000;
-    s32 MinY = 10000;
-    s32 MaxX = -10000;
-    s32 MaxY = -10000;
-
-    u32 *Row = (u32 *)DummyDrawing;
-
-    for(s32 Y = 0;
-            Y < BoundHeight;
-            ++Y)
-    {
-        u32 *Pixel = Row;
-        for(s32 X = 0;
-                X < BoundHeight;
-                ++X)
-        {
-            if(*Pixel != 0)
-            {
-                if(MinX > X)
-                {
-                    MinX = X;
-                }
-            }
-        }
-    }
-
-#endif
 
     //ReleaseDC(NULL, DeviceContext);
-    VirtualFree(DummyDrawing, 0, MEM_RELEASE);
-    DeleteDC(DeviceContext);
-    return(Glyph);
+
+    //Glyph.Width = MAX_FONT_WIDTH;
+    //Glyph.Height = MAX_FONT_HEIGHT;
+    //Glyph.Pitch = MAX_FONT_WIDTH*BYTES_PER_PIXEL;
+    //Glyph.Memory = DummyDrawing;
+    //return(Glyph);
+    *GlyphOutput = Glyph;
+}
+
+internal void
+Win32FinalizeFont(temp_font *TempFont)
+{
+    VirtualFree(TempFont->DummyDrawing, 0, MEM_RELEASE);
+    DeleteDC(TempFont->DeviceContext);
 }
 
 internal DWORD WINAPI
@@ -439,7 +448,7 @@ EditorThread(LPVOID Param)
     void *TotalScreenMemory = VirtualAlloc(0, TotalScreenMemorySize,
             MEM_RESERVE|MEM_COMMIT,
             PAGE_READWRITE);
-    Win32ScreenBuffer.Memory = TotalScreenMemory;
+    Win32ScreenBuffer.Bitmap.Memory = TotalScreenMemory;
 
     Win32ResizeClientScreen(Window, &Win32ScreenBuffer);
 
@@ -448,12 +457,12 @@ EditorThread(LPVOID Param)
             "w:/build/skriv_temp.dll", 
             "w:/build/lock.tmp");
 
-    offscreen_buffer Buffer = {};
-
-    glyph Glyph = {};
+    bitmap Buffer = {};
 
     b32 FontLoaded = false;
 
+
+    loaded_font Font;
     while(GlobalRunning)
     {
         FILETIME NewDLLWriteTime = Win32GetLastWriteTime("w:/build/skriv.dll");
@@ -469,16 +478,33 @@ EditorThread(LPVOID Param)
 
         ProcessMessages(Window);
 
-        Buffer.Memory = Win32ScreenBuffer.Memory;
-        Buffer.Width = Win32ScreenBuffer.Width;
-        Buffer.Height = Win32ScreenBuffer.Height;
-        Buffer.Pitch = Win32ScreenBuffer.Pitch;
+        Buffer.Memory = Win32ScreenBuffer.Bitmap.Memory;
+        Buffer.Width =  Win32ScreenBuffer.Bitmap.Width;
+        Buffer.Height = Win32ScreenBuffer.Bitmap.Height;
+        Buffer.Pitch =  Win32ScreenBuffer.Bitmap.Pitch;
 
         if(!FontLoaded)
         {
-             Glyph = Win32LoadFont("Verdana", 50);
-             FontLoaded = true;
-             ProgramMemory->Glyph = &Glyph;
+            temp_font TempFont = Win32InitializeFont("Consolas", 150);
+            
+            u32 GlyphMemorySize = Megabytes(10);
+            u32 GlyphsSize = (u32)('~' - ' ')*sizeof(loaded_font);
+            Font.GlyphMemory = VirtualAlloc(0, GlyphMemorySize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+            Font.Glyphs = (bitmap *)VirtualAlloc(0, GlyphsSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
+            void *PositionInGlyphMemory = Font.GlyphMemory;
+            for(char Codepoint = ' ';
+                    Codepoint <= '~';
+                    ++Codepoint)
+            {
+                bitmap *Glyph = (bitmap *)((u8 *)Font.Glyphs + (Codepoint - ' ')*sizeof(bitmap));
+                Win32LoadGlyph(&TempFont, Glyph, PositionInGlyphMemory, Codepoint);
+                PositionInGlyphMemory = (u8 *)PositionInGlyphMemory + Glyph->Height*Glyph->Pitch; 
+
+            }
+            Win32FinalizeFont(&TempFont);
+            FontLoaded = true;
+            ProgramMemory->Font = &Font;
         }
 
         if(ProgramCode.UpdateAndRender)

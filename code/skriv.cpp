@@ -8,9 +8,8 @@
 
 #include "skriv_render.cpp"
 
-
 internal void
-DrawCharacter(offscreen_buffer *Buffer, glyph *Glyph)
+DrawCharacter(bitmap *Buffer, bitmap *Glyph, v4 Color = {1, 1, 1, 1})
 {
     u8 *SourceRow = (u8 *)Glyph->Memory;
     u8 *DestRow = (u8 *)Buffer->Memory;
@@ -35,10 +34,9 @@ DrawCharacter(offscreen_buffer *Buffer, glyph *Glyph)
 
             SourceColor = SRGB255ToLinear1(SourceColor);
 
-            if(SourceColor.a != 1.0f && SourceColor.a != 0.0f)
-            {
-                int x = 5;
-            }
+            SourceColor = Hadamard(SourceColor, Color);
+
+            SourceColor *= Color.a;
 
             v4 DestColor =
             {
@@ -68,6 +66,14 @@ DrawCharacter(offscreen_buffer *Buffer, glyph *Glyph)
     }
 }
 
+internal bitmap *
+GetBitmapFromCodepoint(loaded_font *Font, char Codepoint)
+{
+    bitmap *Result;
+    u32 Index = (u32)(Codepoint - ' ');
+    Result = Font->Glyphs + Index;
+    return(Result);
+}
 
 #define MAX_FONT_WIDTH 1024
 #define MAX_FONT_HEIGHT 1024
@@ -77,7 +83,9 @@ extern "C" UPDATE_AND_RENDER(UpdateAndRender)
     
     DrawGrid(Buffer, 100.0f, V4(0, 1, 0, 1));
 
-    glyph *GlyphA = Memory->Glyph;
+    bitmap *Glyph = GetBitmapFromCodepoint(Memory->Font, ' ');
+
+
 
 #if 0
     for(u32 Y = 0;
@@ -97,6 +105,8 @@ extern "C" UPDATE_AND_RENDER(UpdateAndRender)
     }
 #endif
 
-    DrawCharacter(Buffer, GlyphA);
+    //v4 Blue = V4(0, 0, 1, 1);
+    //DrawRectangle(Buffer, V2(0,0), V2((r32)Glyph->Width, (r32)Glyph->Height), Blue);
+    DrawCharacter(Buffer, Glyph);
 }
 

@@ -3,10 +3,7 @@
 struct win32_screen_buffer
 {
     BITMAPINFO Info;
-    void *Memory;
-    u32 Width;
-    u32 Height;
-    u32 Pitch;
+    bitmap Bitmap;
 };
 
 

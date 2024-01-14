@@ -1,5 +1,5 @@
 internal void
-ClearBackground(offscreen_buffer *Buffer, u32 Color)
+ClearBackground(bitmap *Buffer, u32 Color)
 {
     u8 *Row = (u8 *)Buffer->Memory;
     for(u32 Y = 0;
@@ -19,7 +19,7 @@ ClearBackground(offscreen_buffer *Buffer, u32 Color)
 }
 
 internal void
-DrawRectangle(offscreen_buffer *Buffer, v2 Min, v2 Max, v4 Color)
+DrawRectangle(bitmap *Buffer, v2 Min, v2 Max, v4 Color)
 {
     u32 WidthMax = (Buffer->Width);
     u32 HeightMax = (Buffer->Height);
@@ -62,7 +62,7 @@ DrawRectangle(offscreen_buffer *Buffer, v2 Min, v2 Max, v4 Color)
 }
 
 internal void
-DrawOrthogonalLine(offscreen_buffer *Buffer, v2 Min, v2 Max, v4 Color, r32 LineWidth = 1.0f)
+DrawOrthogonalLine(bitmap *Buffer, v2 Min, v2 Max, v4 Color, r32 LineWidth = 1.0f)
 {
     if(Min.x == Max.x)
     {
@@ -77,19 +77,19 @@ DrawOrthogonalLine(offscreen_buffer *Buffer, v2 Min, v2 Max, v4 Color, r32 LineW
 }
 
 internal void
-DrawVerticalLine(offscreen_buffer *Buffer, r32 X, v4 Color, r32 LineWidth = 1.0f)
+DrawVerticalLine(bitmap *Buffer, r32 X, v4 Color, r32 LineWidth = 1.0f)
 {
     DrawOrthogonalLine(Buffer, V2(X,0),V2(X, (r32)Buffer->Height), Color, LineWidth);
 }
 
 internal void
-DrawHorizontalLine(offscreen_buffer *Buffer, r32 Y, v4 Color, r32 LineWidth = 1.0f)
+DrawHorizontalLine(bitmap *Buffer, r32 Y, v4 Color, r32 LineWidth = 1.0f)
 {
     DrawOrthogonalLine(Buffer, V2(0.0f, Y), V2((r32)Buffer->Width, Y), Color, LineWidth);
 }
 
 internal void
-DrawGrid(offscreen_buffer *Buffer, r32 GridSize, v4 Color)
+DrawGrid(bitmap *Buffer, r32 GridSize, v4 Color)
 {
     Assert(GridSize != 0.0f);
     u32 NumberOfHorLines = (u32)((Buffer->Height -2)/GridSize);

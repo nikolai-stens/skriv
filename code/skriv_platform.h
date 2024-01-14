@@ -27,7 +27,7 @@
 
 #define BYTES_PER_PIXEL 4
 
-struct glyph
+struct bitmap
 {
     void *Memory;
     u32 Width;
@@ -37,17 +37,11 @@ struct glyph
 
 struct loaded_font
 {
-    TEXTMETRIC TextMetric;
-    glyph GlyphTable[];
+    void *GlyphMemory;
+    bitmap *Glyphs;
+    u32 GlyphCount;
 };
 
-struct offscreen_buffer
-{
-    void *Memory;
-    u32 Width;
-    u32 Height;
-    u32 Pitch;
-};
 
 inline u32 
 SafeTruncateToU64(u64 Value)
@@ -78,11 +72,11 @@ struct platform_api
 struct program_memory
 {
     u32 BackgroundColor;
-    glyph *Glyph;
+    loaded_font *Font;
     platform_api PlatformAPI;
 };
 
-#define UPDATE_AND_RENDER(name) void name(offscreen_buffer *Buffer, program_memory *Memory)
+#define UPDATE_AND_RENDER(name) void name(bitmap *Buffer, program_memory *Memory)
 typedef UPDATE_AND_RENDER(update_and_render);
 
 #define SKRIV_PLATFORM_H
