@@ -71,19 +71,20 @@ GetBitmapFromCodepoint(loaded_font *Font, char Codepoint)
 {
     bitmap *Result;
     u32 Index = (u32)(Codepoint - ' ');
-    Result = Font->Glyphs + Index;
+    Result = (bitmap *)((u8 *)Font->Glyphs + Index*sizeof(bitmap));
     return(Result);
 }
 
 #define MAX_FONT_WIDTH 1024
 #define MAX_FONT_HEIGHT 1024
+static char test = 'a';
 extern "C" UPDATE_AND_RENDER(UpdateAndRender)
 {
     ClearBackground(Buffer, Memory->BackgroundColor);
     
     DrawGrid(Buffer, 100.0f, V4(0, 1, 0, 1));
 
-    bitmap *Glyph = GetBitmapFromCodepoint(Memory->Font, ' ');
+    bitmap *Glyph = GetBitmapFromCodepoint(Memory->Font, test);
 
 
 
@@ -108,5 +109,9 @@ extern "C" UPDATE_AND_RENDER(UpdateAndRender)
     //v4 Blue = V4(0, 0, 1, 1);
     //DrawRectangle(Buffer, V2(0,0), V2((r32)Glyph->Width, (r32)Glyph->Height), Blue);
     DrawCharacter(Buffer, Glyph);
+    if(++test > '!')
+    {
+        test = ' ';
+    }
 }
 

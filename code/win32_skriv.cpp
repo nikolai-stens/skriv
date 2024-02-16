@@ -300,8 +300,9 @@ Win32InitializeFont(char *FontName, u32 PointsSize)
 
     return(Result);
 }
+
 internal void
-Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, char Codepoint)
+Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, u32 Codepoint)
 {
     ZeroMemory(TempFont->DummyDrawing, TempFont->DummyDrawingSize);
 
@@ -486,22 +487,27 @@ EditorThread(LPVOID Param)
         if(!FontLoaded)
         {
             temp_font TempFont = Win32InitializeFont("Consolas", 150);
+
+            u8 StartingChar = ' ';
+            u8 EndingChar = '~';
             
             u32 GlyphMemorySize = Megabytes(10);
-            u32 GlyphsSize = (u32)('~' - ' ')*sizeof(loaded_font);
+            u32 GlyphsSize = (u32)(StartingChar - EndingChar)*sizeof(bitmap);
             Font.GlyphMemory = VirtualAlloc(0, GlyphMemorySize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
             Font.Glyphs = (bitmap *)VirtualAlloc(0, GlyphsSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
             void *PositionInGlyphMemory = Font.GlyphMemory;
-            for(char Codepoint = ' ';
-                    Codepoint <= '~';
+            for(char Codepoint = StartingChar;
+                    Codepoint <= EndingChar;
                     ++Codepoint)
             {
-                bitmap *Glyph = (bitmap *)((u8 *)Font.Glyphs + (Codepoint - ' ')*sizeof(bitmap));
+                int x = sizeof(bitmap);
+                bitmap *Glyph = (bitmap *)((u8 *)Font.Glyphs + (Codepoint - StartingChar)*sizeof(bitmap));
                 Win32LoadGlyph(&TempFont, Glyph, PositionInGlyphMemory, Codepoint);
                 PositionInGlyphMemory = (u8 *)PositionInGlyphMemory + Glyph->Height*Glyph->Pitch; 
-
+                Assert(PositionInGlyphMemory < (u8 *)Font.GlyphMemory + Megabytes(10));
             }
+
             Win32FinalizeFont(&TempFont);
             FontLoaded = true;
             ProgramMemory->Font = &Font;
