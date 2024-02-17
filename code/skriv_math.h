@@ -176,6 +176,13 @@ V2i(u32 X, u32 Y)
     return(Result);
 }
 
+struct v2u
+{
+    u32 x;
+    u32 y;
+};
+
+
 //
 // v3
 //

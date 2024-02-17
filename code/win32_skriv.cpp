@@ -272,25 +272,17 @@ Win32InitializeFont(char *FontName, u32 PointsSize)
     Info.bmiHeader.biClrUsed = 0;
     Info.bmiHeader.biClrImportant = 0;
 
-    Result.DummyDrawingSize = MAX_FONT_WIDTH*MAX_FONT_HEIGHT*sizeof(u32);
-    Result.DummyDrawing = VirtualAlloc(0, Result.DummyDrawingSize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
-
-    HBITMAP Bitmap = CreateDIBSection(Result.DeviceContext, &Info, DIB_RGB_COLORS, &Result.DummyDrawing, 0, 0);
-    SelectObject(Result.DeviceContext, Bitmap);
-    SetBkColor(Result.DeviceContext, RGB(0, 0, 0));
-
     Result.FontHeight = -MulDiv(PointsSize, GetDeviceCaps(Result.DeviceContext, LOGPIXELSY), 72);
 
     Result.FontHandle = CreateFontA(Result.FontHeight, 0, 0, 0,
-                                    FW_NORMAL, //Weight
-                                    FALSE, // Italic
-                                    FALSE, // Underline
-                                    FALSE, // Strikeout
+                                    FW_NORMAL, // Weight
+                                    FALSE,     // Italic
+                                    FALSE,     // Underline
+                                    FALSE,     // Strikeout
                                     DEFAULT_CHARSET,
                                     OUT_DEFAULT_PRECIS,
                                     CLIP_DEFAULT_PRECIS,
-                                    CLEARTYPE_QUALITY,
-                                    //ANTIALIASED_QUALITY,
+                                    CLEARTYPE_QUALITY,   //ANTIALIASED_QUALITY,
                                     DEFAULT_PITCH|FF_DONTCARE,
                                     FontName);
 
@@ -298,17 +290,110 @@ Win32InitializeFont(char *FontName, u32 PointsSize)
     GetTextMetrics(Result.DeviceContext, &Result.TextMetric);
     SetTextColor(Result.DeviceContext, RGB(255, 255, 255));
 
+    Result.DummyDrawingSize = MAX_FONT_WIDTH*MAX_FONT_HEIGHT*sizeof(u32);
+    Result.DummyDrawing = VirtualAlloc(0, Result.DummyDrawingSize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+
+    HBITMAP Bitmap = CreateDIBSection(Result.DeviceContext, &Info, DIB_RGB_COLORS, &Result.DummyDrawing, 0, 0);
+    SelectObject(Result.DeviceContext, Bitmap);
+    SetBkColor(Result.DeviceContext, RGB(0, 0, 0));
+
     return(Result);
 }
 
+
 internal void
-Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, u32 Codepoint)
+Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, char Codepoint)
 {
     ZeroMemory(TempFont->DummyDrawing, TempFont->DummyDrawingSize);
 
     SIZE Size;
     GetTextExtentPoint32W(TempFont->DeviceContext, &(wchar_t)Codepoint, 1, &Size);
 
+    b32 Test = TextOutW(TempFont->DeviceContext, 0, 0, &(wchar_t)Codepoint, 1);
+
+    u32 FontHeight = TempFont->TextMetric.tmHeight;
+    u32 FontWidth  = TempFont->TextMetric.tmAveCharWidth;
+    u32 FontDescent = TempFont->TextMetric.tmDescent;
+    
+    bitmap Glyph;
+    Glyph.Height = FontHeight;
+    Glyph.Width = FontWidth; 
+    Glyph.Pitch = BYTES_PER_PIXEL*Glyph.Width;
+    Glyph.Memory = GlyphLocation;
+
+    /*
+    u8 *SourceRow = (u8 *)TempFont->DummyDrawing + BYTES_PER_PIXEL*MAX_FONT_WIDTH*(MAX_FONT_HEIGHT - FontHeight - 1);
+    u8 *DestRow = (u8 *)Glyph.Memory;
+    for(u32 Y = 0;
+            Y < FontHeight;
+            ++Y)
+    {
+        u32 *SourcePixel = (u32 *)SourceRow;
+        u32 *DestPixel = (u32 *)DestRow;
+        for(u32 X = 0;
+                X < FontWidth;
+                ++X)
+        {
+            *DestPixel++ = *SourcePixel++;
+        }
+        SourceRow += BYTES_PER_PIXEL*MAX_FONT_WIDTH;
+        DestRow += Glyph.Pitch;
+    }
+*/
+
+    u8 *SourceRow = (u8 *)TempFont->DummyDrawing + BYTES_PER_PIXEL*MAX_FONT_WIDTH*(MAX_FONT_HEIGHT - FontHeight - 1);
+    u8 *DestRow = (u8 *)Glyph.Memory;
+    for(u32 Y = 0;
+            Y <= FontHeight;
+            ++Y)
+    {
+        u32 *SourcePixel = (u32 *)SourceRow;
+        u32 *DestPixel = (u32 *)DestRow;
+        for(u32 X = 0;
+                X <= FontWidth;
+                ++X)
+        {
+            r32 Red   = (r32)((*SourcePixel >> 16) & 0xFF);
+            r32 Green = (r32)((*SourcePixel >> 8) & 0xFF);
+            r32 Blue  = (r32)((*SourcePixel >> 0) & 0xFF);
+            r32 Alpha = Max(Red, Max(Green, Blue)); // cleartype assumes opaque background, need to find alpha channel some other way
+
+            v4 PixelColor =
+            {
+                Red,
+                Green,
+                Blue,
+                Alpha
+            };
+
+            PixelColor = SRGB255ToLinear1(PixelColor);
+            PixelColor.rgb *= PixelColor.a;
+            PixelColor = Linear1ToSRGB255(PixelColor);
+
+            *DestPixel++ = (((u32)(PixelColor.a + 0.5f) << 24) |
+                            ((u32)(PixelColor.r + 0.5f) << 16) | 
+                            ((u32)(PixelColor.g + 0.5f) << 8) | 
+                            ((u32)(PixelColor.b + 0.5f) << 0));
+            ++SourcePixel;
+        }
+
+        SourceRow += BYTES_PER_PIXEL*MAX_FONT_WIDTH;
+        DestRow += Glyph.Pitch;
+    }
+
+    *GlyphOutput = Glyph;
+}
+
+/*
+internal void
+Win32LoadGlyph2(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, u32 Codepoint)
+{
+    ZeroMemory(TempFont->DummyDrawing, TempFont->DummyDrawingSize);
+
+    SIZE Size;
+    GetTextExtentPoint32W(TempFont->DeviceContext, &(wchar_t)Codepoint, 1, &Size);
+
+    
     s32 PreStepX = 128;
 
     s32 BoundWidth = (s32)(Size.cx + 2*PreStepX);
@@ -373,9 +458,13 @@ Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, u3
     //    s32 
     //}
 
+    u32 FontHeight = TempFont->TextMetric.tmHeight;
+    u32 FontWidth  = TempFont->TextMetric.tmAveCharWidth;
+    u32 FontDescent = TempFont->TextMetric.tmDescent;
+
     bitmap Glyph;
-    Glyph.Width = (u32)(MaxX - MinX + 1);
-    Glyph.Height = (u32)(MaxY - MinY + 1);
+    Glyph.Height = FontHeight;
+    Glyph.Width = FontWidth; 
     Glyph.Pitch = BYTES_PER_PIXEL*Glyph.Width;
 
     Glyph.Memory = GlyphLocation;
@@ -420,6 +509,7 @@ Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, u3
     //return(Glyph);
     *GlyphOutput = Glyph;
 }
+*/
 
 internal void
 Win32FinalizeFont(temp_font *TempFont)
@@ -428,13 +518,30 @@ Win32FinalizeFont(temp_font *TempFont)
     DeleteDC(TempFont->DeviceContext);
 }
 
-internal DWORD WINAPI
+
+LOAD_GLYPH_TO_MEMORY(LoadGlyphToMemory)
+{
+    Font->LoadedCodepoints[Font->CurrentCodepointIndex] = Codepoint;
+
+    temp_font TempFont = Win32InitializeFont(FontName, PointSize);
+
+    bitmap *Glyph = (bitmap *)((u8 *)Font->Glyphs + Font->CurrentCodepointIndex*sizeof(bitmap));
+    Win32LoadGlyph(&TempFont, Glyph, Font->NextFreeGlyphMemory, Codepoint);
+    Font->NextFreeGlyphMemory = (u8 *)Font->NextFreeGlyphMemory + Glyph->Height*Glyph->Pitch; 
+    Assert(Font->NextFreeGlyphMemory < (u8 *)Font->GlyphMemory + GLYPH_MEMORY_SIZE);
+
+    ++Font->CurrentCodepointIndex;
+    Win32FinalizeFont(&TempFont);
+}
+
+    internal DWORD WINAPI
 EditorThread(LPVOID Param)
 {
     program_memory *ProgramMemory = (program_memory *)VirtualAlloc(0, sizeof(program_memory), MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
     ProgramMemory->BackgroundColor = 0xFF323232;
     ProgramMemory->PlatformAPI.FreeFileMemory = FreeFileMemory;
     ProgramMemory->PlatformAPI.ReadEntireFile = ReadEntireFile;
+    ProgramMemory->PlatformAPI.LoadGlyphToMemory = LoadGlyphToMemory;
 
     HWND Window = (HWND)Param;
 
@@ -463,7 +570,7 @@ EditorThread(LPVOID Param)
     b32 FontLoaded = false;
 
 
-    loaded_font Font;
+    loaded_font Font = {};
     while(GlobalRunning)
     {
         FILETIME NewDLLWriteTime = Win32GetLastWriteTime("w:/build/skriv.dll");
@@ -486,29 +593,18 @@ EditorThread(LPVOID Param)
 
         if(!FontLoaded)
         {
-            temp_font TempFont = Win32InitializeFont("Consolas", 150);
+            u32 GlyphMemorySize = GLYPH_MEMORY_SIZE;
+            u32 GlyphsSize = NUMBER_OF_GLYPHS*sizeof(bitmap);
 
-            u8 StartingChar = ' ';
-            u8 EndingChar = '~';
-            
-            u32 GlyphMemorySize = Megabytes(10);
-            u32 GlyphsSize = (u32)(StartingChar - EndingChar)*sizeof(bitmap);
             Font.GlyphMemory = VirtualAlloc(0, GlyphMemorySize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
             Font.Glyphs = (bitmap *)VirtualAlloc(0, GlyphsSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+            Font.NextFreeGlyphMemory = Font.GlyphMemory;
+            Font.CurrentCodepointIndex = 1;
+            Font.LoadedCodepoints[0] = 0; //reserve first slot in list
 
-            void *PositionInGlyphMemory = Font.GlyphMemory;
-            for(char Codepoint = StartingChar;
-                    Codepoint <= EndingChar;
-                    ++Codepoint)
-            {
-                int x = sizeof(bitmap);
-                bitmap *Glyph = (bitmap *)((u8 *)Font.Glyphs + (Codepoint - StartingChar)*sizeof(bitmap));
-                Win32LoadGlyph(&TempFont, Glyph, PositionInGlyphMemory, Codepoint);
-                PositionInGlyphMemory = (u8 *)PositionInGlyphMemory + Glyph->Height*Glyph->Pitch; 
-                Assert(PositionInGlyphMemory < (u8 *)Font.GlyphMemory + Megabytes(10));
-            }
+            Font.Size = 14;
+            Font.Name = "Consolas";
 
-            Win32FinalizeFont(&TempFont);
             FontLoaded = true;
             ProgramMemory->Font = &Font;
         }

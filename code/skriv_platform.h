@@ -25,6 +25,8 @@
 #define Gigabytes(Value) (Megabytes(Value)*1024LL)
 #define Terabytes(Value) (Gigabytes(Value)*1024LL)
 
+#define Max(Value1, Value2) ((Value1) >= (Value2)) ? Value1 : Value2
+
 #define BYTES_PER_PIXEL 4
 
 struct bitmap
@@ -35,11 +37,20 @@ struct bitmap
     u32 Pitch;
 };
 
+#define NUMBER_OF_GLYPHS 128
+#define GLYPH_MEMORY_SIZE Megabytes(10)
+
 struct loaded_font
 {
     void *GlyphMemory;
     bitmap *Glyphs;
     u32 GlyphCount;
+    char LoadedCodepoints[NUMBER_OF_GLYPHS];
+    u32 CurrentCodepointIndex;
+    void *NextFreeGlyphMemory;
+
+    u32 Size;
+    char *Name;
 };
 
 
@@ -63,10 +74,14 @@ typedef FREE_FILE_MEMORY(free_file_memory);
 #define READ_ENTIRE_FILE(name) entire_file name(char *Filename)
 typedef READ_ENTIRE_FILE(read_entire_file);
 
+#define LOAD_GLYPH_TO_MEMORY(name) void name(loaded_font *Font, char Codepoint, char *FontName,  u32 PointSize)
+typedef LOAD_GLYPH_TO_MEMORY(load_glyph_to_memory);
+
 struct platform_api
 {
     free_file_memory *FreeFileMemory;
     read_entire_file *ReadEntireFile;
+    load_glyph_to_memory *LoadGlyphToMemory;
 };
 
 struct program_memory
