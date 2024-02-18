@@ -49,8 +49,10 @@ struct loaded_font
     u32 CurrentCodepointIndex;
     void *NextFreeGlyphMemory;
 
-    u32 Size;
+    u32 PointSize;
     char *Name;
+    u32 GlyphHeight;
+    u32 GlyphWidth;
 };
 
 
@@ -77,11 +79,15 @@ typedef READ_ENTIRE_FILE(read_entire_file);
 #define LOAD_GLYPH_TO_MEMORY(name) void name(loaded_font *Font, char Codepoint, char *FontName,  u32 PointSize)
 typedef LOAD_GLYPH_TO_MEMORY(load_glyph_to_memory);
 
+#define ALLOCATE(name) void * name(u32 Size)
+typedef ALLOCATE(allocate);
+
 struct platform_api
 {
     free_file_memory *FreeFileMemory;
     read_entire_file *ReadEntireFile;
     load_glyph_to_memory *LoadGlyphToMemory;
+    allocate *Allocate;
 };
 
 struct program_memory

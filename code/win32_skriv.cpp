@@ -302,7 +302,7 @@ Win32InitializeFont(char *FontName, u32 PointsSize)
 
 
 internal void
-Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, char Codepoint)
+Win32LoadGlyph(temp_font *TempFont, bitmap *GlyphOutput, void *GlyphLocation, u32 Codepoint)
 {
     ZeroMemory(TempFont->DummyDrawing, TempFont->DummyDrawingSize);
 
@@ -534,6 +534,14 @@ LOAD_GLYPH_TO_MEMORY(LoadGlyphToMemory)
     Win32FinalizeFont(&TempFont);
 }
 
+
+ALLOCATE(Allocate)
+{
+    void *Result;
+    Result= VirtualAlloc(0, Size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    return(Result);
+}
+
     internal DWORD WINAPI
 EditorThread(LPVOID Param)
 {
@@ -542,6 +550,7 @@ EditorThread(LPVOID Param)
     ProgramMemory->PlatformAPI.FreeFileMemory = FreeFileMemory;
     ProgramMemory->PlatformAPI.ReadEntireFile = ReadEntireFile;
     ProgramMemory->PlatformAPI.LoadGlyphToMemory = LoadGlyphToMemory;
+    ProgramMemory->PlatformAPI.Allocate = Allocate;
 
     HWND Window = (HWND)Param;
 
@@ -602,8 +611,13 @@ EditorThread(LPVOID Param)
             Font.CurrentCodepointIndex = 1;
             Font.LoadedCodepoints[0] = 0; //reserve first slot in list
 
-            Font.Size = 14;
+            Font.PointSize = 14;
             Font.Name = "Consolas";
+
+            temp_font Temp = Win32InitializeFont(Font.Name, Font.PointSize);
+            Font.GlyphHeight = Temp.TextMetric.tmHeight;
+            Font.GlyphWidth = Temp.TextMetric.tmAveCharWidth;
+            Win32FinalizeFont(&Temp);
 
             FontLoaded = true;
             ProgramMemory->Font = &Font;

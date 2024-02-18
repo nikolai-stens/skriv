@@ -131,43 +131,25 @@ GetBitmapFromCodepoint(program_memory *Memory, char Codepoint)
     }
     else
     {
-        Memory->PlatformAPI.LoadGlyphToMemory(Font, Codepoint, Font->Name, Font->PointSize);
+        Memory->PlatformAPI.LoadGlyphToMemory(Font, Codepoint, Font->Name, Font->Size);
     }
 
     return(Result);
 }
 
-// TODO: finn på noe bedre her
-#define MAX_LINE_NUMBER 4096
-struct document
-{
-    char *Contents;
-
-    u32 NumberOfLines;
-    u32 *LineSizeArray;
-};
-
-
 internal void
-RenderTextLine(bitmap *Buffer, program_memory *Memory, 
-        document *Doc, u32 LineNumber,
-        v4 Color = {1, 1, 1, 1})
+RenderTextLine(bitmap *Buffer, program_memory *Memory, char *TextOut, v4 Color = {1, 1, 1, 1})
 {
-
-    char *TextOut = Doc->Contents + LineNumber;
-    u32 TextSize = *(Doc->LineSizeArray + LineNumber);
-
     r32 AtX = 0;
-    r32 AtY = (r32)(Buffer->Height - (LineNumber + 1)*Memory->Font->GlyphHeight);
+    r32 AtY = 0;
     if(TextOut)
     {
-        for(u32 Char = 0;
-                Char < TextSize;
-                ++Char)
+        while(*TextOut)
         {
             bitmap *Glyph = GetBitmapFromCodepoint(Memory, *TextOut);
             if(Glyph)
             {
+                AtY = (r32)(Buffer->Height - Glyph->Height);
                 DrawCharacter(Buffer, Glyph, V2(AtX, AtY), Color);
                 TextOut++;
                 AtX += Glyph->Width;
@@ -180,30 +162,34 @@ RenderTextLine(bitmap *Buffer, program_memory *Memory,
     }
 }
 
+struct document
+{
+    char *Contents;
+
+    u32 NumberOfLines;
+    u32 *LineSizeArray;
+};
+
 internal document
-ParseFileAsDocument(program_memory *Memory, entire_file *File)
+ParseFileAsDocument(entire_file *File)
 {
     document Result = {};
-    Result.LineSizeArray = (u32 *)Memory->PlatformAPI.Allocate(MAX_LINE_NUMBER);
-    Result.Contents = (char *)File->Contents;
+    Result.Contents = File->Contents;
 
     if(File->ContentsSize)
     {
-        u32 *CurrentLineSize = Result.LineSizeArray + Result.NumberOfLines;
+        ++Result.NumberOfLines;
+        u32 *CurrentLineSize = Result->LineSizeArray + Result.NumberOfLines;
         for(u32 ByteIndex = 0;
                 ByteIndex < File->ContentsSize;
                 ++ByteIndex)
         {
             ++(*CurrentLineSize);
-            char Codepoint = *((char *)File->Contents + ByteIndex);
-            if(Codepoint == '\n')
+            char *Codepoint = (u8 *)File->Contents + ByteIndex;
+            if(Codepoint = '\n')
             {
-                //TODO: include zero char in size? 
-                if(Codepoint != 0)
-                {
-                    ++Result.NumberOfLines;
-                    CurrentLineSize = Result.LineSizeArray + Result.NumberOfLines;
-                }
+                ++Result.NumberOfLines;
+                CurrentLineSize = Result->LineSizeArray + Result.NumberOfLines;
             }
         }
     }
@@ -250,15 +236,11 @@ extern "C" UPDATE_AND_RENDER(UpdateAndRender)
     if(!DocumentParsed)
     {
         TestFile = Memory->PlatformAPI.ReadEntireFile("w:/skriv/test/testfile.txt");
-        TestDoc = ParseFileAsDocument(Memory, &TestFile);
+        TestDoc = ParseFileAsDocument(&TestFile);
     }
 
 
-    for(u32 Line = 0;
-            Line < TestDoc.NumberOfLines;
-            ++Line)
-    {
-        RenderTextLine(Buffer, Memory, &TestDoc, Line);
-    }
+    RenderTextLine(Buffer, Memory, (char *)TestFile.Contents);
+
 }
 
