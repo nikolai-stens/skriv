@@ -155,6 +155,13 @@ RenderTextLine(bitmap *Buffer, program_memory *Memory,
 {
 
     char *TextOut = Doc->Contents + LineNumber;
+    for(u32 LineIndex = 0;
+            LineIndex < LineNumber;
+            ++LineIndex)
+    {
+        u32 LineSize = *(Doc->LineSizeArray + LineIndex);
+        TextOut += LineSize;
+    }
     u32 TextSize = *(Doc->LineSizeArray + LineNumber);
 
     r32 AtX = 0;
